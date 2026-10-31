@@ -1,0 +1,15 @@
+
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Private research files
+Original_Colab_Notebook.ipynb
+*.pqo
+
+# Credentials
+.streamlit/secrets.toml
+.env

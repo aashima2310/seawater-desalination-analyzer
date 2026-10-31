@@ -1,0 +1,10 @@
+Parameter,Value,Unit
+Feed mass flow,102300.0,kg/h
+Permeate mass flow,51150.0,kg/h
+Brine mass flow,51150.0,kg/h
+Feed salt flow,3580.5000000000005,kg/h
+Permeate salt flow,0.0,kg/h
+Brine salt flow,3580.5000000000005,kg/h
+Feed salinity,35.0,g/kg
+Brine salinity,70.0,g/kg
+Mass recovery,50.0,%

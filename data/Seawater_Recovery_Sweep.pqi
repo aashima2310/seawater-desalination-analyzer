@@ -1,0 +1,121 @@
+TITLE Real Seawater - Recovery Sweep
+
+SELECTED_OUTPUT 1
+    -file Recovery_Sweep_Selected.txt
+    -reset false
+    -solution true
+    -user_punch true
+    -high_precision true
+
+USER_PUNCH 1
+    -headings Water_Activity Osmotic_Coefficient Ionic_Strength Charge_Error
+    -start
+    10 PUNCH ACT("H2O"), OSMOTIC, MU, PERCENT_ERROR
+    -end
+
+SOLUTION 1 Recovery_0_percent
+    temp 25
+    pH 8.22
+    pe 8.451
+    units mg/kgw
+    -water 1
+    Na 11158.549223
+    Cl 20054.922280
+    Mg 1338.652850
+    Ca 427.253886
+    K 413.575130
+    Si 4.435233
+    S(6) 2810.362694 as SO4
+    Alkalinity 146.820725 as HCO3
+
+SOLUTION 2 Recovery_10_percent
+    temp 25
+    pH 8.22
+    pe 8.451
+    units mg/kgw
+    -water 1
+    Na 12448.554913
+    Cl 22373.410405
+    Mg 1493.410405
+    Ca 476.647399
+    K 461.387283
+    Si 4.947977
+    S(6) 3135.260116 as SO4
+    Alkalinity 163.794220 as HCO3
+
+SOLUTION 3 Recovery_20_percent
+    temp 25
+    pH 8.22
+    pe 8.451
+    units mg/kgw
+    -water 1
+    Na 14075.816993
+    Cl 25298.039216
+    Mg 1688.627451
+    Ca 538.954248
+    K 521.699346
+    Si 5.594771
+    S(6) 3545.098039 as SO4
+    Alkalinity 185.205229 as HCO3
+
+SOLUTION 4 Recovery_30_percent
+    temp 25
+    pH 8.22
+    pe 8.451
+    units mg/kgw
+    -water 1
+    Na 16192.481203
+    Cl 29102.255639
+    Mg 1942.556391
+    Ca 620.000000
+    K 600.150376
+    Si 6.436090
+    S(6) 4078.195489 as SO4
+    Alkalinity 213.055639 as HCO3
+
+SOLUTION 5 Recovery_40_percent
+    temp 25
+    pH 8.22
+    pe 8.451
+    units mg/kgw
+    -water 1
+    Na 19058.407080
+    Cl 34253.097345
+    Mg 2286.371681
+    Ca 729.734513
+    K 706.371681
+    Si 7.575221
+    S(6) 4800.000000 as SO4
+    Alkalinity 250.764602 as HCO3
+
+SOLUTION 6 Recovery_50_percent
+    temp 25
+    pH 8.22
+    pe 8.451
+    units mg/kgw
+    -water 1
+    Na 23156.989247
+    Cl 41619.354839
+    Mg 2778.064516
+    Ca 886.666667
+    K 858.279570
+    Si 9.204301
+    S(6) 5832.258065 as SO4
+    Alkalinity 304.692473 as HCO3
+
+SOLUTION 7 Recovery_60_percent
+    temp 25
+    pH 8.22
+    pe 8.451
+    units mg/kgw
+    -water 1
+    Na 29501.369863
+    Cl 53021.917808
+    Mg 3539.178082
+    Ca 1129.589041
+    K 1093.424658
+    Si 11.726027
+    S(6) 7430.136986 as SO4
+    Alkalinity 388.169863 as HCO3
+
+END

@@ -1,0 +1,4 @@
+Process,Electricity (kWh/m3),Heat (kWhth/m3),Exergy Input (kWh/m3),Second-Law Efficiency (%)
+RO without ERD,4.67,0.0,4.67,22.068522483940043
+RO with ERD,3.168,0.0,3.168,32.531565656565654
+MED,2.2,60.0,10.068279178201955,10.236108691058861

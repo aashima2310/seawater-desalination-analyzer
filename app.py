@@ -1,72 +1,55 @@
-"""Seawater Desalination: Thermodynamic Performance Analyzer.
+"""Seawater Desalination Performance Analyzer — presentation-only redesign.
 
-Reproducible educational application based on the user's experiment datasets.
-Run: python -m streamlit run app.py
+All engineering calculations remain in the original, unchanged models.py.
+All experiment datasets remain original, unchanged CSV files.
+Run with: python -m streamlit run app.py
 """
 from __future__ import annotations
 
+import base64
+from html import escape
 from pathlib import Path
-import io
-import zipfile
 
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
-from plotly.subplots import make_subplots
+import streamlit.components.v1 as components
 
 from models import (
-    FEED_DENSITY, osmotic_pressure_nacl, minimum_work_nacl,
-    interpolate_phreeqc, ro_model, med_model,
+    minimum_work_nacl,
+    osmotic_pressure_nacl,
+    interpolate_phreeqc,
+    ro_model,
+    med_model,
 )
 
 BASE = Path(__file__).resolve().parent
 DATA = BASE / "data"
 ASSETS = BASE / "assets"
-NAVY, TEAL, CYAN, MUTED, AMBER, RED = "#152A40", "#007F86", "#24A2B4", "#6E8293", "#E99B36", "#DA6572"
+CYAN = "#1EC8E8"
+TEAL = "#00A8A8"
+LIGHT = "#7FDBFF"
+ORANGE = "#FFA94D"
+WHITE = "#F4FAFF"
+MUTED = "#B8C7D9"
+PALETTE = [CYAN, TEAL, ORANGE, LIGHT, "#8B9EFF", "#79D6B6"]
 
-st.set_page_config(page_title="Seawater Desalination | Thermodynamic Analyzer",
-                   page_icon="🌊", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(
+    page_title="Seawater Desalination Analyzer",
+    page_icon="💧",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
+CSS = (BASE / "styles.css").read_text(encoding="utf-8")
+st.markdown(f"<style>{CSS}</style>", unsafe_allow_html=True)
+KPI_CSS = CSS.split("/* KPI_FRAME_START */", 1)[1].split("/* KPI_FRAME_END */", 1)[0]
 
-st.markdown("""
-<style>
-  .stApp {background: #F7FAFC;}
-  header[data-testid="stHeader"] {background: #F7FAFC;}
-  [data-testid="stSidebar"] {background: #EEF5F8; border-right: 1px solid #DDE9EF;}
-  div[data-testid="stMetric"] {padding: 16px 18px; background: white; border: 1px solid #E2EAF1; border-radius: 15px; box-shadow: 0 3px 14px rgba(10,40,60,.035);}
-  div[data-testid="stMetricLabel"] {font-weight:600; color:#688096;}
-
-div[data-testid="stMetricValue"] {
-    color: #142A40;
-    font-size: clamp(1.35rem, 2vw, 1.9rem);
-    white-space: nowrap;
-}
-div[data-testid="stMetric"] {
-    min-width: 0;
-}
-  .hero {border-radius:22px; padding:32px 35px; margin:4px 0 22px; color:white;
-         background:linear-gradient(114deg,#112B42 0%,#145269 56%,#00868D 100%);
-         box-shadow:0 16px 40px rgba(20,60,80,.14);}
-  .hero .eyebrow {font-size:12px; font-weight:800; letter-spacing:2px; color:#8CE0DC;}
-  .hero h1 {font-size:2.15rem; color:white; line-height:1.14; margin:12px 0 8px; letter-spacing:-.5px;}
-  .hero p {color:#C6E2E9; max-width:800px; font-size:1rem; margin-bottom:0;}
-  .section-kicker {text-transform:uppercase; font-size:12px; font-weight:800; color:#007F86; letter-spacing:1.8px; margin:12px 0 2px;}
-  .small-note {border-left:3px solid #43AAB2; background:#EDF5F6; padding:13px 16px;
-               font-size:14px; color:#41596C; border-radius:0 9px 9px 0; margin:12px 0;}
-  .flow-card {background:#fff; border:1px solid #E0E9EF; border-radius:15px; text-align:center;
-              padding:18px 8px; min-height:100px;}
-  .flow-card h4 {margin:5px 0; color:#16394A; font-size:17px;}
-  .flow-card p {margin:0; font-size:13px; color:#6B7F91;}
-  .text-muted {color:#6E8293;}
-  h1,h2,h3 {letter-spacing:-.3px;}
-  [data-testid="stTabs"] button p {font-weight:700;}
-  div[data-testid="stDataFrame"] {border-radius:11px; overflow:hidden;}
-</style>
-""", unsafe_allow_html=True)
 
 @st.cache_data(show_spinner=False)
 def read_data(name: str) -> pd.DataFrame:
     return pd.read_csv(DATA / name)
+
 
 exp1 = read_data("Experiment_1_Results.csv")
 refcase = read_data("Seawater_Reference_Case.csv")
@@ -77,73 +60,215 @@ robase = read_data("Experiment_4_RO_Energy_Results.csv")
 medbase = read_data("Experiment_5_RO_vs_MED.csv")
 
 
-def section(eyebrow: str, heading: str, explanation: str = ""):
-    st.markdown(f'<p class="section-kicker">{eyebrow}</p>', unsafe_allow_html=True)
-    st.subheader(heading)
-    if explanation:
-        st.caption(explanation)
+# --------------------------- UI helpers only ---------------------------
+def section_header(title: str, summary: str) -> None:
+    st.markdown(
+        f'<div class="section-head"><h2>{escape(title)}</h2>'
+        f'<p>{escape(summary)}</p></div>',
+        unsafe_allow_html=True,
+    )
 
 
-def format_chart(fig: go.Figure, yaxis: str | None = None, height: int = 350) -> go.Figure:
-    fig.update_layout(height=height, margin=dict(l=10, r=15, t=38, b=18),
-                      paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                      font=dict(family="Arial, sans-serif", color=NAVY, size=12),
-                      legend=dict(orientation="h", yanchor="bottom", y=1.025, x=0),
-                      hovermode="x unified", colorway=[TEAL, AMBER, CYAN, RED],
-                      xaxis=dict(showline=True, linecolor="#D6E2EA", gridcolor="#E6EDF2", zeroline=False),
-                      yaxis=dict(showline=False, gridcolor="#E6EDF2", zeroline=False))
-    if yaxis:
-        fig.update_yaxes(title_text=yaxis)
+def insight_card(label: str, number: str, conclusion: str) -> None:
+    st.markdown(
+        '<div class="insight-card">'
+        f'<div class="insight-label">{escape(label)}</div>'
+        f'<div class="insight-number">{escape(number)}</div>'
+        f'<p>{escape(conclusion)}</p></div>',
+        unsafe_allow_html=True,
+    )
+
+
+def notice(message: str, kind: str = "info") -> None:
+    st.markdown(
+        f'<div class="note note-{escape(kind)}">{escape(message)}</div>',
+        unsafe_allow_html=True,
+    )
+
+
+def style_fig(fig: go.Figure, y_title: str = "", height: int = 410) -> go.Figure:
+    """Apply the same visual styling to every Plotly chart, not its data."""
+    fig.update_layout(
+        height=height,
+        margin=dict(l=20, r=20, t=76, b=36),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(family="Inter, Arial, sans-serif", size=16, color=MUTED),
+        colorway=PALETTE,
+        hovermode="x unified",
+        hoverlabel=dict(bgcolor="#09213C", font=dict(color=WHITE, size=15)),
+        legend=dict(
+            orientation="h", yanchor="bottom", y=1.08, x=0,
+            font=dict(size=15, color=WHITE), bgcolor="rgba(0,0,0,0)",
+        ),
+        xaxis=dict(gridcolor="rgba(184,199,217,0.12)", zeroline=False,
+                   linecolor="rgba(184,199,217,0.25)", tickfont=dict(size=15),
+                   title_font=dict(size=17)),
+        yaxis=dict(gridcolor="rgba(184,199,217,0.12)", zeroline=False,
+                   linecolor="rgba(184,199,217,0.25)", tickfont=dict(size=15),
+                   title_font=dict(size=17)),
+        bargap=0.38,
+    )
+    fig.update_traces(selector=dict(type="scatter"), line_width=4, marker_size=10)
+    fig.update_traces(selector=dict(type="bar"), marker_line_width=0,
+                      textfont=dict(size=18, color=WHITE))
+    if y_title:
+        fig.update_yaxes(title_text=y_title)
     return fig
 
 
-def plot(fig: go.Figure, key: str):
-    st.plotly_chart(fig, width="stretch", key=key, config={"displaylogo": False, "scrollZoom": False})
+def mark_selected(fig: go.Figure, x: float, label: str) -> None:
+    """Selected-point guide: presentation only, doesn't modify a series."""
+    fig.add_vline(
+        x=x, line_width=2, line_dash="dot", line_color=ORANGE,
+        annotation_text=label, annotation_position="top right",
+        annotation_font=dict(color=ORANGE, size=16),
+    )
 
 
-def artifact_image(path: str, caption: str):
-    file = ASSETS / path
-    if file.exists():
-        st.image(str(file), caption=caption, use_container_width=True)
+def chart_card(title: str, fig: go.Figure, key: str) -> None:
+    with st.container(border=True):
+        st.markdown(f'<h3 class="chart-title">{escape(title)}</h3>', unsafe_allow_html=True)
+        st.plotly_chart(
+            fig, use_container_width=True, key=key,
+            config={
+                "displaylogo": False,
+                "displayModeBar": "hover",
+                "scrollZoom": False,
+                "modeBarButtons": [["zoom2d", "resetScale2d", "toImage"]],
+                "toImageButtonOptions": {"format": "png", "filename": key, "scale": 2},
+                "responsive": True,
+            },
+        )
 
 
-def download_data(df: pd.DataFrame, filename: str, label: str = "Download table as CSV"):
-    st.download_button(label, df.to_csv(index=False).encode("utf-8"), file_name=filename,
-                       mime="text/csv", key=f"dl-{filename}")
+def data_table(frame: pd.DataFrame, filename: str, title: str = "View numerical results") -> None:
+    with st.expander(title, expanded=False):
+        st.dataframe(frame, use_container_width=True, hide_index=True)
+        st.download_button(
+            "Download CSV", frame.to_csv(index=False).encode("utf-8"),
+            file_name=filename, mime="text/csv", key=f"csv-{filename}",
+        )
 
 
-def work_reference(s: int, r: int):
-    if s == 35:
-        return interpolate_phreeqc(ph, r, "Minimum Work (kWh/m3)"), "PHREEQC-derived work · lookup/interpolated"
-    return minimum_work_nacl(s, r/100), "Simplified NaCl · recalculated"
+def hero_image_url() -> str | None:
+    path = ASSETS / "hero.jpg"
+    if not path.exists():
+        return None
+    return "data:image/jpeg;base64," + base64.b64encode(path.read_bytes()).decode("ascii")
 
 
-# ---- Sidebar: all inputs, independent of individual tabs ----
+def render_hero() -> None:
+    url = hero_image_url()
+    overlay = "linear-gradient(90deg,rgba(3,18,37,.98) 0%,rgba(3,18,37,.88) 43%,rgba(3,18,37,.18) 100%)"
+    image_layer = f',url("{url}") center / cover no-repeat' if url else ",linear-gradient(125deg,#06203a 0%,#0A5866 100%)"
+    st.markdown(
+        f'<div class="hero" style="background:{overlay}{image_layer};">'
+        '<h1>Seawater Desalination<br>Performance Analyzer</h1>'
+        '<p>Explore the science of freshwater production through five interactive engineering experiments.</p>'
+        '</div>', unsafe_allow_html=True,
+    )
+
+
+def kpi_card(cards: list[tuple[str, float, int, str, float | None]]) -> None:
+    """Four responsive count-up cards; numbers are passed in, never recomputed."""
+    columns = st.columns(4, gap="medium")
+    for column, (label, value, places, unit, delta) in zip(columns, cards):
+        if delta is None or abs(delta) < 1e-9:
+            delta_html = '<span class="delta neutral">Reference</span>'
+        else:
+            arrow = "↑" if delta > 0 else "↓"
+            klass = "positive" if delta > 0 else "negative"
+            delta_html = f'<span class="delta {klass}">{arrow} {abs(delta):.{places}f} since last change</span>'
+        html = f"""<!doctype html><html><head>
+        <meta name="viewport" content="width=device-width,initial-scale=1">
+        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Poppins:wght@600;700;800&display=swap" rel="stylesheet">
+        <style>{KPI_CSS}</style></head><body><div class="kpi">
+        <div class="label">{escape(label)}</div>
+        <div class="value counter" data-value="{value:.12f}" data-places="{places}">{value:.{places}f}</div>
+        <div class="unit">{escape(unit)}</div>{delta_html}</div>
+        <script>
+          if(!window.matchMedia('(prefers-reduced-motion:reduce)').matches){{
+            const el=document.querySelector('.counter'),target=Number(el.dataset.value),places=Number(el.dataset.places);
+            const start=performance.now();function tick(now){{const p=Math.min(1,(now-start)/850);
+              el.textContent=(target*(1-Math.pow(1-p,3))).toFixed(places);
+              if(p<1)requestAnimationFrame(tick);else el.textContent=target.toFixed(places);}}
+            requestAnimationFrame(tick);
+          }}
+        </script></body></html>"""
+        with column:
+            components.html(html, height=182, scrolling=False)
+
+
+def flow_diagram(q_feed: float, q_product: float, q_brine: float) -> None:
+    st.markdown(
+        '<div class="flow-wrap">'
+        f'<div class="flow-step"><b>Feed</b><span>{q_feed:.1f} m³/h</span></div><div class="flow-arrow">→</div>'
+        '<div class="flow-step"><b>High-pressure pump</b><span>Electrical input</span></div><div class="flow-arrow">→</div>'
+        '<div class="flow-step"><b>RO membrane</b><span>Salt separation</span></div>'
+        '</div><div class="flow-split">Two outlet streams</div><div class="flow-wrap flow-output">'
+        f'<div class="flow-step product"><b>Product water</b><span>{q_product:.1f} m³/h</span></div>'
+        '<div class="flow-branch">or</div>'
+        f'<div class="flow-step"><b>Brine</b><span>{q_brine:.1f} m³/h</span></div>'
+        '<div class="flow-arrow">→</div>'
+        '<div class="flow-step erd"><b>Energy recovery</b><span>Brine turbine</span></div>'
+        '</div>', unsafe_allow_html=True,
+    )
+
+
+def reference_work(feed_salinity: int, target_recovery: int) -> tuple[float, str]:
+    if feed_salinity == 35:
+        return interpolate_phreeqc(ph, target_recovery, "Minimum Work (kWh/m3)"), "PHREEQC lookup / interpolation"
+    return minimum_work_nacl(feed_salinity, target_recovery / 100), "Simplified NaCl model"
+
+
+# --------------------------- Sidebar controls ---------------------------
+DEFAULTS = dict(
+    feed_salinity=35, target_recovery=50, feed_flow=100.0,
+    ro_pressure=70, pump_efficiency=80, turbine_efficiency=85,
+    med_heat=60, med_electricity=2.2, med_temperature=70,
+)
+for setting, default in DEFAULTS.items():
+    st.session_state.setdefault(setting, default)
+
+
+def reset_defaults() -> None:
+    for setting, default in DEFAULTS.items():
+        st.session_state[setting] = default
+
+
 with st.sidebar:
-    st.markdown("### 🌊 BlueEnergy Lab")
-    st.caption("IIT Indore · Chemical Engineering")
-    st.divider()
-    st.markdown("**Seawater feed & recovery**")
-    salinity = st.slider("Feed salinity (g/kg)", 20, 50, 35, 5,
-                         help="PHREEQC data are only available at the original 35 g/kg feed.")
-    recovery = st.slider("Target mass recovery (%)", 10, 60, 50, 10)
-    feed_flow = st.number_input("Feed flow (m³/h)", min_value=10.0, max_value=1000.0, value=100.0, step=10.0)
-    st.divider()
-    st.markdown("**Reverse osmosis**")
-    pressure = st.slider("Applied RO pressure (bar)", 60, 90, 70, 1)
-    pump_eff = st.slider("Pump efficiency (%)", 60, 95, 80, 5)
-    erd_eff = st.slider("Turbine energy recovery (%)", 40, 95, 85, 5)
-    st.divider()
-    with st.expander("MED scenario settings"):
-        med_heat = st.slider("MED heat (kWhth/m³)", 40, 120, 60, 5)
-        med_electricity = st.slider("MED electricity (kWh/m³)", 1.0, 4.0, 2.2, 0.1)
-        source_temp = st.slider("Heat-source temperature (°C)", 55, 95, 70, 5)
-    st.caption("Reference case: 35 g/kg · 25°C · 50% recovery · 100 m³/h")
+    st.markdown('<div class="sidebar-title">PROCESS CONTROLS</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sidebar-group">FEED</div>', unsafe_allow_html=True)
+    st.slider("Salinity (g/kg)", 20, 50, step=5, key="feed_salinity")
+    st.number_input("Flow rate (m³/h)", min_value=10.0, max_value=1000.0, step=10.0, key="feed_flow")
+    st.markdown('<div class="sidebar-group">RECOVERY</div>', unsafe_allow_html=True)
+    st.slider("Target mass recovery (%)", 10, 60, step=10, key="target_recovery")
+    st.markdown('<div class="sidebar-group">REVERSE OSMOSIS</div>', unsafe_allow_html=True)
+    st.slider("Operating pressure (bar)", 60, 90, step=1, key="ro_pressure")
+    st.slider("Pump efficiency (%)", 60, 95, step=5, key="pump_efficiency")
+    st.slider("Turbine efficiency (%)", 40, 95, step=5, key="turbine_efficiency")
+    with st.expander("MED scenario inputs"):
+        st.slider("Heat (kWhth/m³)", 40, 120, step=5, key="med_heat")
+        st.slider("Electricity (kWh/m³)", 1.0, 4.0, step=0.1, key="med_electricity")
+        st.slider("Heat source (°C)", 55, 95, step=5, key="med_temperature")
+    st.button("Reset to default", key="reset_parameters", on_click=reset_defaults, use_container_width=True)
 
-r = recovery/100
+salinity = st.session_state.feed_salinity
+recovery = st.session_state.target_recovery
+feed_flow = st.session_state.feed_flow
+pressure = st.session_state.ro_pressure
+pump_eff = st.session_state.pump_efficiency
+erd_eff = st.session_state.turbine_efficiency
+med_heat = st.session_state.med_heat
+med_electricity = st.session_state.med_electricity
+source_temp = st.session_state.med_temperature
+r = recovery / 100
+
+# These are the EXACT SAME calls, constants, and outputs as the original app.
 ro = ro_model(feed_flow, r, pressure, pump_eff/100, erd_eff/100, feed_salinity_gkg=salinity)
 med = med_model(med_heat, med_electricity, source_temp)
-w_min, work_source = work_reference(salinity, recovery)
+w_min, work_source = reference_work(salinity, recovery)
 eta_ro_off = 100 * w_min / ro.sec_without
 eta_ro_on = 100 * w_min / ro.sec_with
 eta_med = 100 * w_min / med.total_exergy_kwh_m3
@@ -152,289 +277,294 @@ pi_brine = (interpolate_phreeqc(ph, recovery, "Osmotic Pressure (bar)")
             if salinity == 35 else osmotic_pressure_nacl(brine_salinity))
 pressure_margin = ro.p_brine_bar - pi_brine
 
-st.markdown('''<div class="hero"><div class="eyebrow">THERMODYNAMIC ENGINEERING · INTERACTIVE CASE STUDY</div>
-<h1>Seawater Desalination<br>Performance Analyzer</h1>
-<p>From molecular thermodynamics to process energy: explore five experiments, real PHREEQC outputs,
-model comparisons, reverse-osmosis energy recovery, and RO–MED exergy trade-offs.</p></div>''', unsafe_allow_html=True)
+# Slider deltas compare two runs; no thermodynamic values are altered.
+current_kpis = (w_min, ro.sec_without, ro.sec_with, ro.savings_pct)
+previous_kpis = st.session_state.get("_previous_kpis")
+deltas = (None,) * 4 if previous_kpis is None else tuple(
+    current - previous for current, previous in zip(current_kpis, previous_kpis)
+)
+st.session_state["_previous_kpis"] = current_kpis
+
+# --------------------------- Hero / KPIs ---------------------------
+render_hero()
+kpi_card([
+    ("Minimum Work", w_min, 3, "kWh/m³", deltas[0]),
+    ("RO SEC without ERD", ro.sec_without, 2, "kWh/m³", deltas[1]),
+    ("RO SEC with ERD", ro.sec_with, 2, "kWh/m³", deltas[2]),
+    ("Energy Savings", ro.savings_pct, 1, "%", deltas[3]),
+])
 
 if salinity != 35:
-    st.info("**Property-model scope:** PHREEQC was simulated for a 35 g/kg feed only. For this alternate salinity, the dashboard uses the simplified non-ideal NaCl model for minimum work and brine osmotic pressure. It does not invent new PHREEQC results.")
+    notice("PHREEQC was simulated at a 35 g/kg feed only. This selection uses the simplified NaCl calculation, not invented PHREEQC results.")
 if pressure_margin <= 0:
-    st.error(f"**Potentially infeasible RO setting:** modeled brine pressure ({ro.p_brine_bar:.1f} bar) is not above the estimated brine osmotic pressure ({pi_brine:.1f} bar). Pump-energy results remain a fixed-recovery hypothetical, not evidence that the membrane can produce this water flow.")
+    notice(f"Pressure check: brine pressure {ro.p_brine_bar:.1f} bar does not exceed estimated osmotic pressure {pi_brine:.1f} bar. The fixed-recovery scenario may be infeasible.", "warning")
 elif pressure_margin < 8:
-    st.warning(f"**Limited membrane pressure margin:** only {pressure_margin:.1f} bar between brine pressure and estimated osmotic pressure. Membrane flux and feasible recovery were not solved.")
+    notice(f"Pressure check: only {pressure_margin:.1f} bar remains above estimated brine osmotic pressure. Membrane transport feasibility was not solved.", "warning")
 
-k1,k2,k3,k4 = st.columns(4)
+# --------------------------- Seven views ---------------------------
+tabs = st.tabs(["Overview", "Salinity", "Recovery", "Seawater models", "RO energy", "RO vs MED", "Data & methods"])
 
-k1.metric(
-    "Min. work (kWh/m³)",
-    f"{w_min:.3f}",
-    help=work_source
-)
+with tabs[0]:
+    section_header("The reference plant", "Follow the seawater from feed to freshwater and the energy recovery loop.")
+    flow_diagram(feed_flow, ro.q_permeate, ro.q_brine)
+    a, b = st.columns(2, gap="large")
+    with a:
+        fig = go.Figure(go.Bar(
+            x=["Pump", "No ERD", "With ERD"],
+            y=[ro.pump_kw, ro.net_without_kw, ro.net_with_kw],
+            marker_color=[CYAN, ORANGE, TEAL],
+            text=[f"{x:.1f}" for x in [ro.pump_kw, ro.net_without_kw, ro.net_with_kw]],
+            textposition="outside",
+        ))
+        fig.update_layout(showlegend=False)
+        chart_card("Electrical power flow", style_fig(fig, "Power (kW)"), "overview-power")
+    with b:
+        fig = go.Figure(go.Pie(
+            labels=["Permeate", "Brine"],
+            values=[ro.permeate_mass_kg_h, ro.brine_mass_kg_h], hole=.72,
+            marker_colors=[CYAN, TEAL], textinfo="percent+label", sort=False,
+            textfont=dict(size=17, color=WHITE),
+        ))
+        fig.update_layout(showlegend=False)
+        chart_card("Mass distribution", style_fig(fig), "overview-mass")
+    insight_card("REFERENCE CASE", f"{feed_flow:.0f} m³/h", f"Feed at {salinity} g/kg and {recovery}% recovery; output changes with the sidebar controls.")
 
-k2.metric(
-    "RO SEC · no ERD (kWh/m³)",
-    f"{ro.sec_without:.2f}"
-)
-
-k3.metric(
-    "RO SEC · with ERD (kWh/m³)",
-    f"{ro.sec_with:.2f}"
-)
-
-k4.metric(
-    "Energy savings (%)",
-    f"{ro.savings_pct:.1f}"
-)
-
-st.caption(f"Live scenario · {salinity} g/kg · {recovery}% mass recovery · {pressure} bar · {work_source}. RO values use the simplified fixed-recovery hydraulic model.")
-
-pages = st.tabs(["🏠 Overview", "01 · Salinity", "02 · Recovery", "03 · Seawater models", "04 · RO energy", "05 · RO vs MED", "📁 Data & methods"])
-
-with pages[0]:
-    section("The system", "One consistent reference plant", "Your original 100 m³/h case is the reference; sliders explore conditional scenarios.")
-    c1, c2, c3 = st.columns(3, gap="medium")
-    with c1:
-        st.markdown(f'<div class="flow-card"><div style="font-size:24px">🌊</div><h4>Seawater feed</h4><p>{feed_flow:.1f} m³/h · {salinity} g/kg · 25°C</p></div>', unsafe_allow_html=True)
-    with c2:
-        st.markdown('<div class="flow-card"><div style="font-size:24px">⚙️</div><h4>RO system</h4><p>High-pressure pump · membrane · optional brine turbine</p></div>', unsafe_allow_html=True)
-    with c3:
-        st.markdown(f'<div class="flow-card"><div style="font-size:24px">💧</div><h4>Products</h4><p>{ro.q_permeate:.1f} m³/h permeate · {ro.q_brine:.1f} m³/h brine</p></div>', unsafe_allow_html=True)
-    st.markdown('''<div class="small-note">The app prescribes mass recovery and approximates stream densities. It does <b>not</b> solve membrane flux or predict whether the target is achievable at a given pressure.</div>''', unsafe_allow_html=True)
-    left, right = st.columns([1.1, 1], gap="large")
+with tabs[1]:
+    section_header("Effect of salinity", "See how salt concentration changes the theoretical energy required to produce freshwater.")
+    left, right = st.columns(2, gap="large")
     with left:
-        section("Live energy balance", "Where the pump energy goes")
-        f = go.Figure()
-        f.add_trace(go.Bar(name="Pump input", x=["Pump", "Net without ERD", "Net with ERD"],
-                           y=[ro.pump_kw, ro.net_without_kw, ro.net_with_kw], marker_color=[NAVY, CYAN, TEAL],
-                           text=[f"{v:.1f} kW" for v in [ro.pump_kw, ro.net_without_kw, ro.net_with_kw]], textposition="outside"))
-        format_chart(f, "Electrical power (kW)", 350)
-        f.update_layout(showlegend=False)
-        plot(f, "overview_power")
+        fig = go.Figure()
+        for i, s in enumerate(sorted(exp1["Feed Salinity (g/kg)"].unique())):
+            sub = exp1[exp1["Feed Salinity (g/kg)"] == s]
+            fig.add_trace(go.Scatter(
+                x=sub["Recovery (%)"], y=sub["Minimum Work (kWh/m3)"],
+                name=f"{s:g} g/kg", mode="lines+markers", line=dict(color=PALETTE[i]),
+            ))
+        mark_selected(fig, recovery, f"{recovery}% recovery")
+        fig.update_xaxes(title_text="Recovery (%)")
+        chart_card("Minimum work across feed salinities", style_fig(fig, "Minimum work (kWh/m³)"), "salinity-curves")
     with right:
-        section("Mass balance", "Product streams")
-        f = go.Figure(go.Pie(labels=["Permeate", "Brine"],
-                             values=[ro.permeate_mass_kg_h, ro.brine_mass_kg_h],
-                             hole=.70, marker_colors=[TEAL, "#D1E5ED"],
-                             textinfo="percent+label", sort=False))
-        format_chart(f, height=350)
-        f.update_layout(showlegend=False, annotations=[dict(text=f"{ro.feed_mass_kg_h:,.0f}<br>kg/h", x=.5, y=.5, showarrow=False, font=dict(size=20, color=NAVY))])
-        plot(f, "overview_mass")
-    st.markdown("#### The five experiments")
-    for name, detail in [
-        ("01 · Salt concentration", "What happens to minimum work as feed salinity increases?"),
-        ("02 · Water recovery", "What happens as more fresh water is extracted?"),
-        ("03 · Seawater thermodynamics", "How do a simplified NaCl model, multicomponent PHREEQC and MIT compare?"),
-        ("04 · Reverse osmosis", "How much hydraulic power can a brine turbine recover?"),
-        ("05 · RO vs MED", "How do electrical and thermal inputs compare on a second-law basis?")]:
-        st.markdown(f"**{name}** — {detail}")
-
-with pages[1]:
-    section("Experiment 01", "Effect of feed salinity on minimum separation work", "Source: original Experiment_1_Results.csv + original simplified NaCl equation.")
-    c1,c2 = st.columns([1.5,1], gap="large")
-    with c1:
-        f=go.Figure()
-        for s in sorted(exp1['Feed Salinity (g/kg)'].unique()):
-            sub=exp1[exp1['Feed Salinity (g/kg)']==s]
-            f.add_trace(go.Scatter(x=sub['Recovery (%)'], y=sub['Minimum Work (kWh/m3)'],
-                                   name=f"{s:g} g/kg", mode="lines+markers", line=dict(width=2)))
-        f.update_xaxes(title_text="Recovery (%)")
-        format_chart(f, "Minimum work (kWh/m³)", 410)
-        plot(f,"exp1_curves")
-    with c2:
-        st.markdown("#### Selected recovery comparison")
-        s_grid = np.linspace(10,70,90)
+        s_grid = np.linspace(10, 70, 90)
         w_grid = [minimum_work_nacl(s, r) for s in s_grid]
-        f=go.Figure(go.Scatter(x=s_grid,y=w_grid,mode="lines",line=dict(color=TEAL,width=3),name="Simplified non-ideal NaCl"))
-        f.add_vline(x=salinity, line_dash="dot", line_color=AMBER)
-        f.update_xaxes(title_text="Feed salinity (g/kg)")
-        format_chart(f, "Work (kWh/m³)", 315)
-        plot(f,"exp1_salinity")
-        st.metric("Work at selected salinity", f"{minimum_work_nacl(salinity,r):.3f} kWh/m³")
-        st.caption(f"Calculated at {recovery}% recovery. For 35 g/kg PHREEQC work, see Experiment 3.")
-    with st.expander("Numerical data · original experiment"):
-        st.dataframe(exp1, width="stretch", hide_index=True)
-        download_data(exp1,"Experiment_1_Results.csv")
-    st.info("Interpretation: higher feed salinity increases osmotic pressure and theoretical minimum-work estimates. The analytical model assumes NaCl-only chemistry, complete salt rejection, and constant density.")
+        fig = go.Figure(go.Scatter(x=s_grid, y=w_grid, mode="lines", name="Non-ideal NaCl", line=dict(color=CYAN)))
+        mark_selected(fig, salinity, f"{salinity} g/kg")
+        fig.update_xaxes(title_text="Feed salinity (g/kg)")
+        chart_card("Current recovery: salinity sensitivity", style_fig(fig, "Minimum work (kWh/m³)"), "salinity-selected")
+    insight_card("SELECTED SCENARIO", f"{minimum_work_nacl(salinity, r):.3f} kWh/m³", "The NaCl model predicts greater minimum work at higher feed salinity.")
+    data_table(exp1, "Experiment_1_Results.csv", "See original salinity/recovery data")
 
-with pages[2]:
-    section("Experiment 02", "What happens as freshwater recovery increases?", "PHREEQC and simplified NaCl predictions at the reference feed salinity of 35 g/kg.")
-    c1,c2=st.columns([1.35,1],gap="large")
-    with c1:
-        f=go.Figure()
-        f.add_trace(go.Scatter(x=modelcmp['Recovery (%)'], y=modelcmp['NaCl Model (kWh/m3)'],
-                               mode="lines+markers",line=dict(color=AMBER,width=3), name="Simplified NaCl"))
-        f.add_trace(go.Scatter(x=modelcmp['Recovery (%)'], y=modelcmp['PHREEQC Model (kWh/m3)'],
-                               mode="lines+markers",line=dict(color=TEAL,width=3), name="PHREEQC mixture"))
-        f.add_vline(x=recovery,line_dash="dot",line_color="#8394A4")
-        f.update_xaxes(title_text="Target mass recovery (%)")
-        format_chart(f,"Approx. minimum work (kWh/m³)",400)
-        plot(f,"recovery_work")
-    with c2:
-        f=go.Figure(go.Scatter(x=ph['Recovery (%)'],y=ph['Water Activity'],mode="lines+markers",name="PHREEQC a₍w₎",line=dict(color=TEAL,width=3)))
-        f.update_xaxes(title_text="Recovery (%)")
-        format_chart(f,"Water activity",315)
-        plot(f,"recovery_activity")
-        st.markdown("**Why it rises:** extracting fresh water concentrates the remaining brine. Water activity falls, osmotic pressure rises, and the reversible work per unit product increases.")
-    with st.expander("See original recovery dataset"):
-        st.dataframe(ph, width="stretch", hide_index=True)
-        download_data(ph,"PHREEQC_Recovery_Results.csv")
-    st.caption("PHREEQC data are from seven actual external simulation points (0%, 10%, …, 60%); connecting curves are for visualization. Apparent minimum work was obtained separately by numerical integration.")
+with tabs[2]:
+    section_header("Effect of recovery", "Watch the brine concentrate and the energy requirement rise as water is extracted.")
+    a, b = st.columns(2, gap="large")
+    with a:
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=modelcmp["Recovery (%)"], y=modelcmp["NaCl Model (kWh/m3)"],
+                                 mode="lines+markers", name="Simplified NaCl", line=dict(color=ORANGE)))
+        fig.add_trace(go.Scatter(x=modelcmp["Recovery (%)"], y=modelcmp["PHREEQC Model (kWh/m3)"],
+                                 mode="lines+markers", name="PHREEQC", line=dict(color=CYAN)))
+        mark_selected(fig, recovery, f"{recovery}% recovery")
+        fig.update_xaxes(title_text="Recovery (%)")
+        chart_card("Minimum work versus recovery", style_fig(fig, "Minimum work (kWh/m³)"), "recovery-compare")
+    with b:
+        fig = go.Figure(go.Scatter(x=ph["Recovery (%)"], y=ph["Water Activity"], mode="lines+markers",
+                                    name="PHREEQC water activity", line=dict(color=TEAL)))
+        mark_selected(fig, recovery, f"{recovery}% recovery")
+        fig.update_xaxes(title_text="Recovery (%)")
+        chart_card("Water activity versus recovery", style_fig(fig, "Water activity"), "recovery-activity")
+    insight_card("REFERENCE FEED", f"{interpolate_phreeqc(ph, recovery, 'Minimum Work (kWh/m3)'):.3f} kWh/m³",
+                 "At 35 g/kg, the PHREEQC-derived minimum-work curve increases with recovery.")
+    with st.expander("Play recovery 20–70% (simplified NaCl model)"):
+        values = np.arange(20, 71, 5, dtype=int)
+        works = [minimum_work_nacl(35, float(p)/100) for p in values]
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=values, y=works, mode="lines", name="NaCl model", line=dict(color=CYAN)))
+        fig.add_trace(go.Scatter(x=[values[0]], y=[works[0]], mode="markers", name="Animated recovery",
+                                 marker=dict(size=17, color=ORANGE, line=dict(color=WHITE, width=2))))
+        fig.frames = [go.Frame(
+            name=str(v), traces=[1], data=[go.Scatter(x=[v], y=[w], mode="markers",
+                         marker=dict(size=17, color=ORANGE, line=dict(color=WHITE, width=2)))],
+        ) for v, w in zip(values, works)]
+        fig.update_layout(updatemenus=[dict(type="buttons", direction="left", showactive=False,
+            x=0, y=1.27, buttons=[dict(label="Play 20–70%", method="animate",
+              args=[None, {"frame": {"duration": 350, "redraw": True}, "transition": {"duration": 120},
+                           "fromcurrent": False, "mode": "immediate"}])])])
+        fig.update_xaxes(title_text="Recovery (%)")
+        chart_card("Recovery playback — NaCl only", style_fig(fig, "Minimum work (kWh/m³)", 370), "recovery-play")
+        notice("This playback uses the existing NaCl equation; PHREEQC data only cover 0–60% recovery.")
+    data_table(ph, "PHREEQC_Recovery_Results.csv", "See PHREEQC recovery table")
 
-with pages[3]:
-    section("Experiment 03", "Real seawater chemistry: three levels of modeling", "Aqueous chemistry simulated in USGS PHREEQC with pitzer.dat; independent MIT osmotic-pressure correlation comparison.")
-    col1,col2,col3=st.columns(3)
-    col1.metric("Initial water activity", f"{ph['Water Activity'].iloc[0]:.5f}")
-    col2.metric("Initial ionic strength",f"{ph['Ionic Strength (mol/kg)'].iloc[0]:.3f} mol/kg")
-    col3.metric("MIT vs PHREEQC mean difference",f"{mit['Difference (%)'].abs().mean():.3f}%")
-    left,right=st.columns([1.2,1],gap="large")
+with tabs[3]:
+    section_header("Seawater thermodynamic models", "Compare ideal NaCl, non-ideal NaCl and actual multicomponent PHREEQC output.")
+    a, b = st.columns(2, gap="large")
+    with a:
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=mit["Salinity (g/kg)"], y=mit["PHREEQC (bar)"],
+                                 mode="lines+markers", name="PHREEQC Pitzer", line=dict(color=CYAN)))
+        fig.add_trace(go.Scatter(x=mit["Salinity (g/kg)"], y=mit["MIT Approx. (bar)"],
+                                 mode="lines+markers", name="MIT approximation", line=dict(color=ORANGE, dash="dash")))
+        mark_selected(fig, 35/(1-r), f"{35/(1-r):.1f} g/kg")
+        fig.update_xaxes(title_text="Brine salinity (g/kg)")
+        chart_card("PHREEQC versus MIT", style_fig(fig, "Osmotic pressure (bar)"), "models-mit")
+    with b:
+        fig = go.Figure(go.Scatter(x=ph["Recovery (%)"], y=ph["Osmotic Coefficient"], mode="lines+markers",
+                                    name="PHREEQC", line=dict(color=TEAL)))
+        mark_selected(fig, recovery, f"{recovery}% recovery")
+        fig.update_xaxes(title_text="Recovery (%)")
+        chart_card("Non-ideal osmotic coefficient", style_fig(fig, "Osmotic coefficient"), "models-phi")
+    r_grid = np.arange(10, 61, 10, dtype=float)
+    fig = go.Figure()
+    for name, values, color, dash in [
+        ("Ideal ionic NaCl", [minimum_work_nacl(35, x/100, ideal=True) for x in r_grid], LIGHT, "dot"),
+        ("Non-ideal NaCl", [minimum_work_nacl(35, x/100) for x in r_grid], ORANGE, "solid"),
+        ("PHREEQC multicomponent", [interpolate_phreeqc(ph, x, "Minimum Work (kWh/m3)") for x in r_grid], CYAN, "solid"),
+    ]:
+        fig.add_trace(go.Scatter(x=r_grid, y=values, mode="lines+markers", name=name,
+                                 line=dict(color=color, dash=dash)))
+    mark_selected(fig, recovery, f"{recovery}% recovery")
+    fig.update_xaxes(title_text="Recovery (%)")
+    chart_card("Three models, one seawater reference", style_fig(fig, "Minimum work (kWh/m³)", 440), "models-three")
+    insight_card("MIT / PHREEQC AGREEMENT", f"{mit['Difference (%)'].abs().mean():.3f}%",
+                 "Mean absolute model-to-model difference, not measured experimental error.")
+    data_table(modelcmp, "Exp3_Model_Comparison.csv", "See model-comparison data")
+    data_table(mit, "MIT_PHREEQC_Validation.csv", "See MIT comparison data")
+
+with tabs[4]:
+    section_header("Reverse osmosis energy", "Discover how a pressurized brine turbine reduces the pump's electrical demand.")
+    left, right = st.columns(2, gap="large")
     with left:
-        f=go.Figure()
-        f.add_trace(go.Scatter(x=mit['Salinity (g/kg)'],y=mit['PHREEQC (bar)'],name="PHREEQC Pitzer · uploaded run",mode="lines+markers",line=dict(color=TEAL,width=3)))
-        f.add_trace(go.Scatter(x=mit['Salinity (g/kg)'],y=mit['MIT Approx. (bar)'],name="MIT approximation · uploaded analysis",mode="lines+markers",line=dict(color=AMBER,dash="dash",width=2)))
-        f.update_xaxes(title_text="Brine salinity (g/kg)")
-        format_chart(f,"Osmotic pressure (bar)",390)
-        plot(f,"chem_validate")
+        fig = go.Figure(go.Bar(
+            x=["Without ERD", "With turbine"], y=[ro.sec_without, ro.sec_with],
+            marker_color=[ORANGE, CYAN], text=[f"{ro.sec_without:.2f}", f"{ro.sec_with:.2f}"],
+            textposition="outside",
+        ))
+        fig.update_layout(showlegend=False)
+        chart_card("RO specific energy consumption", style_fig(fig, "SEC (kWh/m³)"), "ro-sec")
     with right:
-        f=go.Figure()
-        f.add_trace(go.Scatter(x=ph['Recovery (%)'],y=ph['Osmotic Coefficient'],name="PHREEQC osmotic coefficient",mode="lines+markers",line=dict(color=TEAL,width=3)))
-        f.update_xaxes(title_text="Recovery (%)")
-        format_chart(f,"Osmotic coefficient",310)
-        plot(f,"chem_phi")
-        st.caption("At 50% recovery: simulated PHREEQC brine osmotic pressure is 55.47 bar. MIT-based approximate value is 55.21 bar.")
-    st.markdown("#### Ideal vs simplified non-ideal vs simulated seawater")
-    r_grid=np.arange(10,61,10,dtype=float)
-    ideal_curve=np.array([minimum_work_nacl(35,x/100,ideal=True) for x in r_grid])
-    nacl_curve=np.array([minimum_work_nacl(35,x/100) for x in r_grid])
-    ph_curve=np.array([interpolate_phreeqc(ph,x,"Minimum Work (kWh/m3)") for x in r_grid])
-    f=go.Figure()
-    for name, vals, color, dash in [
-        ("Ideal ionic NaCl (φ = 1)",ideal_curve,NAVY,"dot"),
-        ("Simplified non-ideal NaCl",nacl_curve,AMBER,"solid"),
-        ("PHREEQC multicomponent seawater",ph_curve,TEAL,"solid")]:
-        f.add_trace(go.Scatter(x=r_grid,y=vals,name=name,mode="lines+markers",line=dict(color=color,width=3,dash=dash)))
-    f.update_xaxes(title_text="Recovery (%)")
-    format_chart(f,"Approx. minimum work (kWh/m³)",375)
-    plot(f,"chem_three_models")
-    st.markdown('''<div class="small-note"><b>Validation interpretation:</b> 0.245% is the mean absolute <b>model-to-model difference</b> for the seven points—not experimental measurement error. The MIT series uses the <i>approximate reproduction</i> from the original Colab notebook, not a direct MATLAB run. The models also differ in electrolyte representation.</div>''', unsafe_allow_html=True)
-    with st.expander("View the uploaded model-comparison and MIT-validation tables"):
-        st.write("**Simplified NaCl vs PHREEQC**")
-        st.dataframe(modelcmp, hide_index=True, width="stretch")
-        st.write("**MIT approximation vs PHREEQC**")
-        st.dataframe(mit, hide_index=True, width="stretch")
-        download_data(mit,"MIT_PHREEQC_Validation.csv")
+        p_grid = np.linspace(60, 90, 61)
+        pressures = [ro_model(feed_flow, r, float(p), pump_eff/100, erd_eff/100,
+                              feed_salinity_gkg=salinity) for p in p_grid]
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=p_grid, y=[v.sec_without for v in pressures], mode="lines",
+                                 name="Without ERD", line=dict(color=ORANGE)))
+        fig.add_trace(go.Scatter(x=p_grid, y=[v.sec_with for v in pressures], mode="lines",
+                                 name="With turbine", line=dict(color=CYAN)))
+        mark_selected(fig, pressure, f"{pressure} bar")
+        fig.update_xaxes(title_text="RO applied pressure (bar)")
+        chart_card("Operating-pressure sensitivity", style_fig(fig, "SEC (kWh/m³)"), "ro-pressure")
+    insight_card("MODELED ELECTRICITY SAVED", f"{ro.savings_pct:.2f}%",
+                 f"Brine turbine recovers {ro.recovered_kw:.2f} kW under the selected assumptions.")
+    with st.expander("View flow balance and configuration results"):
+        streams = pd.DataFrame({
+            "Stream": ["Feed", "Permeate", "Brine"],
+            "Mass flow (kg/h)": [ro.feed_mass_kg_h, ro.permeate_mass_kg_h, ro.brine_mass_kg_h],
+            "Volumetric flow (m³/h)": [ro.q_feed, ro.q_permeate, ro.q_brine],
+            "Salt content (g/kg)": [salinity, 0, brine_salinity],
+        })
+        st.dataframe(streams, use_container_width=True, hide_index=True)
+        table = pd.DataFrame({
+            "Configuration": ["Without ERD", "With turbine"],
+            "Net power (kW)": [ro.net_without_kw, ro.net_with_kw],
+            "SEC (kWh/m³)": [ro.sec_without, ro.sec_with],
+            "Second-law efficiency (%)": [eta_ro_off, eta_ro_on],
+        })
+        st.dataframe(table, use_container_width=True, hide_index=True)
+        st.download_button("Download CSV", table.to_csv(index=False).encode("utf-8"),
+                           "RO_scenario_results.csv", "text/csv")
+    notice("Fixed recovery and approximate densities; this is a pump-and-turbine energy model, not a membrane-transport or pressure-exchanger simulation.")
 
-with pages[4]:
-    section("Experiment 04", "RO energy recovery: hydraulic engineering model", "Energy estimates respond to your sidebar settings. Recovery is imposed, not predicted by membrane transport.")
-    a,b,c,d=st.columns(4)
-    a.metric("High-pressure pump",f"{ro.pump_kw:.1f} kW")
-    b.metric("Hydraulic recovery",f"{ro.recovered_kw:.1f} kW")
-    c.metric("Net with turbine",f"{ro.net_with_kw:.1f} kW")
-    d.metric("Savings vs no turbine",f"{ro.savings_pct:.1f}%")
-    left,right=st.columns([1,1.1],gap="large")
-    with left:
-        f=go.Figure(go.Bar(x=["Without ERD","With brine turbine"],y=[ro.sec_without,ro.sec_with],
-                           marker_color=[AMBER,TEAL],text=[f"{ro.sec_without:.2f}",f"{ro.sec_with:.2f}"],textposition="outside"))
-        format_chart(f,"SEC (kWh/m³)",375)
-        f.update_layout(showlegend=False)
-        plot(f,"ro_compare")
-    with right:
-        pvals=np.linspace(60,90,61)
-        rovals=[ro_model(feed_flow,r,float(p),pump_eff/100,erd_eff/100,feed_salinity_gkg=salinity) for p in pvals]
-        f=go.Figure()
-        f.add_trace(go.Scatter(x=pvals,y=[x.sec_without for x in rovals],mode="lines",name="No energy recovery",line=dict(color=AMBER,width=3)))
-        f.add_trace(go.Scatter(x=pvals,y=[x.sec_with for x in rovals],mode="lines",name="Brine turbine",line=dict(color=TEAL,width=3)))
-        f.add_vline(x=pressure,line_dash="dot",line_color=NAVY)
-        f.update_xaxes(title_text="RO applied pressure (bar)")
-        format_chart(f,"SEC (kWh/m³)",375)
-        plot(f,"ro_pressure")
-    st.markdown("#### Mass and energy check")
-    stream_table=pd.DataFrame({"Stream":["Feed","Permeate","Brine"],
-        "Mass flow (kg/h)":[ro.feed_mass_kg_h,ro.permeate_mass_kg_h,ro.brine_mass_kg_h],
-        "Volumetric flow (m³/h)":[ro.q_feed,ro.q_permeate,ro.q_brine],
-        "Salt content (g/kg)":[salinity,0,brine_salinity]})
-    st.dataframe(stream_table.style.format({"Mass flow (kg/h)":"{:,.1f}","Volumetric flow (m³/h)":"{:,.2f}","Salt content (g/kg)":"{:.1f}"}),width="stretch",hide_index=True)
-    st.caption(f"Pressure feasibility check: modeled brine pressure {ro.p_brine_bar:.1f} bar vs estimated brine osmotic pressure {pi_brine:.1f} bar. Margin = {pressure_margin:.1f} bar; a positive margin is necessary but not sufficient for feasible membrane flux.")
-    st.info("**Device modeled:** hydraulic recovery turbine at a specified efficiency. It is not a pressure exchanger. Intake pumping, pretreatment, auxiliary equipment, concentration polarization, membrane transport and fouling are excluded.")
-    ro_table=pd.DataFrame({"Configuration":["Without ERD","With turbine"],"Power (kW)":[ro.net_without_kw,ro.net_with_kw],"SEC (kWh/m³)":[ro.sec_without,ro.sec_with],"Second-law indicator (%)":[eta_ro_off,eta_ro_on]})
-    download_data(ro_table,"RO_scenario_results.csv")
+with tabs[5]:
+    section_header("RO versus MED", "Compare electricity and thermal energy on the same thermodynamic exergy basis.")
+    a, b = st.columns(2, gap="large")
+    with a:
+        insight_card("RO WITH TURBINE · SECOND-LAW EFFICIENCY", f"{eta_ro_on:.2f}%",
+                     f"Electric SEC: {ro.sec_with:.3f} kWh/m³")
+    with b:
+        insight_card("MED SCENARIO · SECOND-LAW EFFICIENCY", f"{eta_med:.2f}%",
+                     f"Total exergy: {med.total_exergy_kwh_m3:.3f} kWh/m³")
+    view = st.pills("Compare", ["Second-law efficiency", "Exergy input"], default="Second-law efficiency", key="med-view")
+    labels = ["RO no ERD", "RO with ERD", "MED scenario"]
+    exergies = [ro.sec_without, ro.sec_with, med.total_exergy_kwh_m3]
+    efficiencies = [eta_ro_off, eta_ro_on, eta_med]
+    vals = exergies if view == "Exergy input" else efficiencies
+    y_axis = "Exergy input (kWh/m³)" if view == "Exergy input" else "Second-law efficiency (%)"
+    fig = go.Figure(go.Bar(
+        x=labels, y=vals, marker_color=[LIGHT, CYAN, ORANGE],
+        text=[f"{x:.2f}" for x in vals], textposition="outside",
+    ))
+    fig.update_layout(showlegend=False)
+    chart_card("RO / MED comparison", style_fig(fig, y_axis), "med-bars")
+    with st.expander("Heat-source temperature sensitivity"):
+        temperatures = np.linspace(55, 95, 81)
+        response = [100*w_min/med_model(med_heat, med_electricity, float(t)).total_exergy_kwh_m3
+                    for t in temperatures]
+        fig = go.Figure(go.Scatter(x=temperatures, y=response, mode="lines",
+                                    name="MED scenario", line=dict(color=TEAL)))
+        mark_selected(fig, source_temp, f"{source_temp}°C")
+        fig.update_xaxes(title_text="Heat source (°C)")
+        chart_card("Fixed-load temperature study", style_fig(fig, "Second-law efficiency (%)", 360), "med-temp")
+    table = pd.DataFrame({
+        "Process": labels,
+        "Electricity (kWh/m³)": [ro.sec_without, ro.sec_with, med.electricity_kwh_m3],
+        "Heat (kWhth/m³)": [0, 0, med.heat_kwhth_m3],
+        "Exergy input (kWh/m³)": exergies,
+        "Second-law efficiency (%)": efficiencies,
+    })
+    data_table(table, "RO_MED_scenario_results.csv", "View RO and MED numerical table")
+    notice("MED thermal and electrical loads are scenario assumptions, not outputs from a detailed distillation simulator.")
 
-with pages[5]:
-    section("Experiment 05", "RO versus MED · second-law screening", "Compare electricity with the work-potential (exergy) of a thermal heat source, not thermal kWh directly.")
-    st.latex(r"Ex_{heat}=Q_{heat}\left(1-\frac{T_0}{T_h}\right),\qquad \eta_{II}=\frac{W_{min}}{Ex_{input}}\times100\%")
-    labels=["RO · no turbine","RO · with turbine","MED · scenario"]
-    exergies=[ro.sec_without,ro.sec_with,med.total_exergy_kwh_m3]
-    efficiencies=[eta_ro_off,eta_ro_on,eta_med]
-    left,right=st.columns(2,gap="large")
-    with left:
-        f=go.Figure(go.Bar(x=labels,y=exergies,marker_color=["#B6C7D3",TEAL,AMBER],text=[f"{x:.2f}" for x in exergies],textposition="outside"))
-        format_chart(f,"Exergy input (kWh/m³)",365)
-        f.update_layout(showlegend=False)
-        plot(f,"med_exergy")
-    with right:
-        f=go.Figure(go.Bar(x=labels,y=efficiencies,marker_color=["#B6C7D3",TEAL,AMBER],text=[f"{x:.1f}%" for x in efficiencies],textposition="outside"))
-        format_chart(f,"Conditional second-law efficiency (%)",365)
-        f.update_layout(showlegend=False)
-        plot(f,"med_efficiency")
-    st.caption(f"MED scenario: {med_heat:.0f} kWhth/m³ heat at {source_temp}°C + {med_electricity:.1f} kWh/m³ electricity; assumed environment 25°C. Heat exergy = {med.heat_exergy_kwh_m3:.2f} kWh/m³.")
-    section("Isolating one variable", "Heat-source temperature sensitivity")
-    t_grid=np.linspace(55,95,81)
-    eff=[100*w_min/med_model(med_heat,med_electricity,float(t)).total_exergy_kwh_m3 for t in t_grid]
-    f=go.Figure(go.Scatter(x=t_grid,y=eff,mode="lines",line=dict(color=TEAL,width=3),name="MED scenario"))
-    f.add_vline(x=source_temp,line_color=AMBER,line_dash="dash")
-    f.update_xaxes(title_text="Heat source temperature (°C)")
-    format_chart(f,"Conditional second-law efficiency (%)",300)
-    plot(f,"med_temp")
-    st.warning("**Interpretation boundary:** MED heat and electricity demands are assumed inputs, not predicted by a distillation model; temperature sensitivity holds them constant. This comparison does NOT prove RO is universally superior to MED. Heat-source availability and losses strongly affect practical performance.")
-    combined=pd.DataFrame({"Process":labels,"Electricity (kWh/m³)":[ro.sec_without,ro.sec_with,med.electricity_kwh_m3],
-                           "Heat (kWhth/m³)":[0,0,med.heat_kwhth_m3],"Exergy input (kWh/m³)":exergies,
-                           "Second-law indicator (%)":efficiencies})
-    st.dataframe(combined.style.format(precision=3),hide_index=True,width="stretch")
-    download_data(combined,"RO_MED_scenario_results.csv")
+with tabs[6]:
+    section_header("Data and methods", "Explore the original experiment files and the assumptions behind each result.")
+    source = st.pills("Select source", ["Data files", "Scientific methods", "Original plots"],
+                      default="Data files", key="source-view")
+    if source == "Data files":
+        names = sorted(path.name for path in DATA.iterdir() if path.is_file())
+        selected = st.selectbox("Choose a source file", names)
+        file = DATA / selected
+        if file.suffix.lower() == ".csv":
+            st.dataframe(read_data(selected), use_container_width=True, hide_index=True)
+        st.download_button("Download source file", file.read_bytes(), file_name=file.name,
+                           mime="text/csv" if file.suffix == ".csv" else "application/octet-stream")
+    elif source == "Scientific methods":
+        for name, description in [
+            ("PHREEQC Pitzer", "Original 35 g/kg multicomponent seawater simulation; Streamlit reads stored output rather than rerunning PHREEQC."),
+            ("MIT reference", "The saved comparison uses an approximate reproduction of the MIT osmotic-pressure correlation, not experimental measurements."),
+            ("Simplified NaCl", "The existing concentration-dependent osmotic coefficient and numerical integration functions; not a complete Pitzer model."),
+            ("RO", "Fixed mass recovery with a high-pressure pump and hydraulic brine turbine; membrane transport and fouling are outside the model."),
+            ("MED", "Assumed heat and electricity inputs converted to exergy using a constant-temperature heat-source model."),
+        ]:
+            with st.expander(name):
+                st.write(description)
+        st.markdown("[USGS PHREEQC](https://water.usgs.gov/water-resources/software/PHREEQC/)  ·  "
+                    "[MIT Seawater Library](https://web.mit.edu/seawater/)  ·  "
+                    "[Streamlit](https://docs.streamlit.io/)")
+    else:
+        images = sorted(ASSETS.glob("*.png"))
+        if images:
+            image = st.selectbox("Original experiment plot", [p.name for p in images])
+            st.image(str(ASSETS / image), use_container_width=True)
 
-with pages[6]:
-    section("Reproducibility", "Data provenance & project files", "All included datasets are from the user's uploaded notebooks and simulation outputs.")
-    a,b,c=st.columns(3)
-    a.metric("Experiment themes", "5")
-    b.metric("PHREEQC recovery points", len(ph))
-    c.metric("MIT comparison points", len(mit))
-    st.markdown("#### Model and source distinctions")
-    st.markdown("""
-- **PHREEQC Pitzer:** imported selected-output data from a representative multicomponent seawater simulation (25°C; 35 g/kg initial basis). No geochemical simulation is run inside Streamlit.
-- **MIT comparison:** tabulated results from the uploaded notebook's *approximation* of `SW_OsmCoeff`/`SW_OsmPress`, not independently executed MATLAB code. Useful for model agreement, not experimental validation.
-- **Simplified NaCl:** a concentration-dependent osmotic coefficient model reproduced from Experiment 1's Python code. It is a computational approximation, not the complete Pitzer electrolyte model.
-- **RO:** a high-pressure pump plus *hydraulic recovery turbine* at imposed recovery. The membrane is not modeled using transport equations.
-- **MED:** a constant-temperature heat-source exergy calculation using adjustable assumed thermal and electrical loads. No detailed MED flowsheet is claimed.
-- **Mass recovery vs volumetric flow:** recovery controls the fraction of feed **mass** becoming permeate; stream densities are approximate, so permeate volume need not equal 50 m³/h at 50% mass recovery.
-- **Minimum work:** approximate work estimate using integration of calculated osmotic pressures under a constant-density assumption. It is a useful classroom benchmark, not a fully rigorous Gibbs free-energy calculation.
-""")
-    st.markdown("#### Reference and baseline data")
-    st.dataframe(refcase,hide_index=True,width="stretch")
-    st.markdown("#### Download source datasets")
-    filelist=sorted(DATA.glob('*'))
-    chosen=st.selectbox("Choose a source dataset",[p.name for p in filelist])
-    selected=DATA/chosen
-    st.download_button(f"Download {chosen}",selected.read_bytes(),file_name=chosen,
-                       mime="text/csv" if selected.suffix=='.csv' else "application/octet-stream",key="data_single")
-    with st.expander("View original experiment figures"):
-        selected_fig=st.selectbox("Original chart",[p.name for p in sorted(ASSETS.glob('*.png'))])
-        artifact_image(selected_fig,"Source image generated by the user's Colab notebook")
-    st.markdown("#### References and software")
-    st.markdown("""
-- [USGS PHREEQC software and Pitzer activity model](https://water.usgs.gov/water-resources/software/PHREEQC/)
-- [MIT Seawater Thermophysical Properties Library](https://web.mit.edu/seawater/)
-- [Streamlit documentation](https://docs.streamlit.io/)
-- Mistry & Lienhard: least energy of separation literature (see original project proposal)
-""")
-    st.markdown("#### Download current scenario")
-    scenario=pd.DataFrame([{"Feed salinity (g/kg)":salinity,"Feed flow (m³/h)":feed_flow,"Recovery (%)":recovery,
-        "Applied RO pressure (bar)":pressure,"Pump efficiency (%)":pump_eff,"ERD turbine efficiency (%)":erd_eff,
-        "Approx. minimum work (kWh/m³)":w_min,"Minimum work model":work_source,
-        "RO SEC without turbine (kWh/m³)":ro.sec_without,"RO SEC with turbine (kWh/m³)":ro.sec_with,
-        "Energy savings (%)":ro.savings_pct,"MED heat (kWhth/m³)":med_heat,"MED electricity (kWh/m³)":med_electricity,
-        "MED heat temperature (°C)":source_temp,"MED exergy input (kWh/m³)":med.total_exergy_kwh_m3,
-        "RO with turbine eta II (%)":eta_ro_on,"MED eta II (%)":eta_med,"RO brine pressure margin (bar)":pressure_margin}])
-    download_data(scenario,"Seawater_Analyzer_Current_Scenario.csv")
+    scenario = pd.DataFrame([{
+        "Feed salinity (g/kg)": salinity,
+        "Feed flow (m³/h)": feed_flow,
+        "Recovery (%)": recovery,
+        "Applied RO pressure (bar)": pressure,
+        "Pump efficiency (%)": pump_eff,
+        "ERD turbine efficiency (%)": erd_eff,
+        "Approx. minimum work (kWh/m³)": w_min,
+        "Minimum work model": work_source,
+        "RO SEC without turbine (kWh/m³)": ro.sec_without,
+        "RO SEC with turbine (kWh/m³)": ro.sec_with,
+        "Energy savings (%)": ro.savings_pct,
+        "MED heat (kWhth/m³)": med_heat,
+        "MED electricity (kWh/m³)": med_electricity,
+        "MED heat temperature (°C)": source_temp,
+        "MED exergy input (kWh/m³)": med.total_exergy_kwh_m3,
+        "RO with turbine eta II (%)": eta_ro_on,
+        "MED eta II (%)": eta_med,
+        "RO brine pressure margin (bar)": pressure_margin,
+    }])
+    st.download_button("Download current scenario CSV", scenario.to_csv(index=False).encode("utf-8"),
+                       "Seawater_Analyzer_Current_Scenario.csv", "text/csv")
 
-st.divider()
-st.caption("🌊 BlueEnergy Lab · Educational Chemical Engineering model · Reference: 35 g/kg, 25°C. External PHREEQC output is preserved; no unrun simulations or measured plant data are claimed.")
+st.markdown('<div class="app-end">Engineering model · 25°C reference case · All values retain original calculation methods.</div>',
+            unsafe_allow_html=True)
